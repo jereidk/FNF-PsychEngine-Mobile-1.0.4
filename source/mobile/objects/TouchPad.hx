@@ -97,18 +97,20 @@ class TouchPad extends MobileInputManager implements IMobileControls
 		}
 
 		if (Action != "NONE")
-		{
-			if (!MobileData.actionModes.exists(Action))
-				throw Language.getPhrase('touchpad_actionmode_missing', 'The touchPad actionMode "{1}" doesn\'t exist.', [DPad]);
-
-			for (buttonData in MobileData.actionModes.get(Action).buttons)
-			{
-				Reflect.setField(this, buttonData.button,
-					createButton(buttonData.x, buttonData.y, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
-						Reflect.getProperty(this, buttonData.button).IDs));
-				add(Reflect.field(this, buttonData.button));
-			}
-		}
+                {
+                    if (!MobileData.actionModes.exists(Action)) {
+                        trace('[TouchPad] actionMode "' + Action + '" does NOT exist. Fallback: no action buttons loaded.');
+                        // Simplemente retorna para evitar el crash y no agregar botones de acción
+                        return;
+                    }
+                    for (buttonData in MobileData.actionModes.get(Action).buttons)
+                    {
+                        Reflect.setField(this, buttonData.button,
+                            createButton(buttonData.x, buttonData.y, buttonData.graphic, CoolUtil.colorFromString(buttonData.color),
+                                Reflect.getProperty(this, buttonData.button).IDs));
+                        add(Reflect.field(this, buttonData.button));
+                    }
+                }
 
 		switch (Extra)
 		{
