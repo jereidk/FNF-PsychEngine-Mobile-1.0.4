@@ -7,7 +7,7 @@ permissions:
 
 env:
   PROJECT_NAME: PsychEngine
-  REPO_PATH: ${{ github.repository
+  REPO_PATH: ${{ github.repository }}
   
 jobs:
   get-commit-hash:
