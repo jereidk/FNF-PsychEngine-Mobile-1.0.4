@@ -6,7 +6,7 @@ permissions:
   discussions: write
 
 env:
-  PROJECT_NAME: PsychEngine
+  PROJECT_NAME: WashosEngine
   REPO_PATH: ${{ github.repository }}
   
 jobs:
