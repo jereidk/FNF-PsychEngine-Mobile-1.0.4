@@ -1,25 +1,10 @@
 package states;
 
-import flixel.FlxG;
 import flixel.FlxObject;
-import flixel.FlxSprite;
 import flixel.effects.FlxFlicker;
-import flixel.math.FlxMath;
-import flixel.tweens.FlxEase;
-import flixel.tweens.FlxTween;
-import flixel.util.FlxColor;
-import flixel.text.FlxText;
-import flixel.group.FlxTypedGroup;
-import flixel.sound.FlxSound;
 import lime.app.Application;
 import states.editors.MasterEditorMenu;
 import options.OptionsState;
-import sys.FileSystem;
-import sys.io.File;
-
-#if desktop
-import DiscordClient;
-#end
 
 enum MainMenuColumn {
 	LEFT;
@@ -29,15 +14,16 @@ enum MainMenuColumn {
 
 class MainMenuState extends MusicBeatState
 {
-	public static var psychEngineVersion:String = '0.0.1';
+	public static var psychEngineVersion:String = '0.0.1'; // This is also used for Discord RPC
 	public static var curSelected:Int = 0;
 	public static var curColumn:MainMenuColumn = CENTER;
-	var allowMouse:Bool = true;
+	var allowMouse:Bool = true; //Turn this off to block mouse movement in menus
 
 	var menuItems:FlxTypedGroup<FlxSprite>;
 	var leftItem:FlxSprite;
 	var rightItem:FlxSprite;
 
+	//Centered/Text options
 	var optionShit:Array<String> = [
 		'story_mode',
 		'freeplay',
@@ -49,18 +35,9 @@ class MainMenuState extends MusicBeatState
 	var rightOption:String = 'options';
 
 	var magenta:FlxSprite;
+	var camFollow:FlxObject;
 
 	static var showOutdatedWarning:Bool = true;
-
-	var lastSelectedColumn:MainMenuColumn;
-	var lastSelectedIndex:Int = -1;
-
-	var webiSprite:FlxSprite;
-	var webiDanceTween:FlxTween;
-	var webiDanceOffset:Float = 15;
-
-	var spookyMusic:FlxSound;
-
 	override function create()
 	{
 		super.create();
@@ -71,7 +48,8 @@ class MainMenuState extends MusicBeatState
 		Mods.loadTopMod();
 
 		#if DISCORD_ALLOWED
-		DiscordClient.changePresence("En los Menús", null);
+		// Updating Discord Rich Presence
+		DiscordClient.changePresence("In the Menus", null);
 		#end
 
 		persistentUpdate = persistentDraw = true;
@@ -84,6 +62,9 @@ class MainMenuState extends MusicBeatState
 		bg.updateHitbox();
 		bg.screenCenter();
 		add(bg);
+
+		camFollow = new FlxObject(0, 0, 1, 1);
+		add(camFollow);
 
 		magenta = new FlxSprite(-80).loadGraphic(Paths.image('menuDesat'));
 		magenta.antialiasing = ClientPrefs.data.antialiasing;
@@ -98,25 +79,20 @@ class MainMenuState extends MusicBeatState
 		menuItems = new FlxTypedGroup<FlxSprite>();
 		add(menuItems);
 
-		var startX:Float = 100;
-		var startY:Float = 200;
 		for (num => option in optionShit)
 		{
-			var item:FlxSprite = createMenuItem(option, startX, startY + (num * 140));
+			var item:FlxSprite = createMenuItem(option, 0, (num * 140) + 90);
+			item.y += (4 - optionShit.length) * 70; // Offsets for when you have anything other than 4 items
+			item.screenCenter(X);
 		}
 
-		if (leftOption != null) {
-			leftItem = createMenuItem(leftOption, startX, startY + (optionShit.length * 140));
+		if (leftOption != null)
+			leftItem = createMenuItem(leftOption, 60, 490);
+		if (rightOption != null)
+		{
+			rightItem = createMenuItem(rightOption, FlxG.width - 60, 490);
+			rightItem.x -= rightItem.width;
 		}
-
-		// --- Configuración de la imagen "Webi" (PNG) ---
-		webiSprite = new FlxSprite(FlxG.width * 0.65, FlxG.height * 0.35);
-		webiSprite.loadGraphic(Paths.image('Webi'));
-		webiSprite.antialiasing = ClientPrefs.data.antialiasing;
-		webiSprite.setGraphicSize(Std.int(webiSprite.width * 0.7));
-		webiSprite.updateHitbox();
-		add(webiSprite);
-		startWebiDanceTween();
 
 		var psychVer:FlxText = new FlxText(12, FlxG.height - 44, 0, "Washos Engine v" + psychEngineVersion, 12);
 		psychVer.scrollFactor.set();
@@ -126,15 +102,14 @@ class MainMenuState extends MusicBeatState
 		fnfVer.scrollFactor.set();
 		fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
 		add(fnfVer);
-
 		changeItem();
-		lastSelectedColumn = curColumn;
-		lastSelectedIndex = curSelected;
 
 		#if ACHIEVEMENTS_ALLOWED
+		// Unlocks "Freaky on a Friday Night" achievement if it's a Friday and between 18:00 PM and 23:59 PM
 		var leDate = Date.now();
 		if (leDate.getDay() == 5 && leDate.getHours() >= 18)
 			Achievements.unlock('friday_night_play');
+
 		#if MODS_ALLOWED
 		Achievements.reloadList();
 		#end
@@ -148,13 +123,9 @@ class MainMenuState extends MusicBeatState
 		}
 		#end
 
-		FlxG.camera.scroll.set();
+		FlxG.camera.follow(camFollow, null, 0.15);
 
 		addTouchPad('NONE', 'E');
-
-		// --- Cargar y reproducir el SFX de fondo ---
-		spookyMusic = FlxG.sound.playMusic(Paths.sound('spooky_month_bg_sfx'), 1.0, true);
-		spookyMusic.volume = 0.6;
 	}
 
 	function createMenuItem(name:String, x:Float, y:Float):FlxSprite
@@ -165,8 +136,7 @@ class MainMenuState extends MusicBeatState
 		menuItem.animation.addByPrefix('selected', '$name selected', 24, true);
 		menuItem.animation.play('idle');
 		menuItem.updateHitbox();
-
-		menuItem.scale.set(0.95, 0.95);
+		
 		menuItem.antialiasing = ClientPrefs.data.antialiasing;
 		menuItem.scrollFactor.set();
 		menuItems.add(menuItem);
@@ -174,71 +144,82 @@ class MainMenuState extends MusicBeatState
 	}
 
 	var selectedSomethin:Bool = false;
-	var timeNotMoving:Float = 0;
 
+	var timeNotMoving:Float = 0;
 	override function update(elapsed:Float)
 	{
-		super.update(elapsed);
-
-		if (FlxG.sound.music.volume < 0.8 && FlxG.sound.music != spookyMusic)
+		if (FlxG.sound.music.volume < 0.8)
 			FlxG.sound.music.volume = Math.min(FlxG.sound.music.volume + 0.5 * elapsed, 0.8);
 
 		if (!selectedSomethin)
 		{
-			if (controls.UI_UP_P) {
+			if (controls.UI_UP_P)
 				changeItem(-1);
-			}
 
-			if (controls.UI_DOWN_P) {
+			if (controls.UI_DOWN_P)
 				changeItem(1);
-			}
 
-			var currentMouseAllow:Bool = allowMouse;
-			if (currentMouseAllow && (FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0 || FlxG.mouse.justPressed))
+			var allowMouse:Bool = allowMouse;
+			if (allowMouse && ((FlxG.mouse.deltaScreenX != 0 && FlxG.mouse.deltaScreenY != 0) || FlxG.mouse.justPressed)) //FlxG.mouse.deltaScreenX/Y checks is more accurate than FlxG.mouse.justMoved
 			{
+				allowMouse = false;
 				FlxG.mouse.visible = true;
 				timeNotMoving = 0;
 
-				var mouseOverItemChanged:Bool = false;
-
-				var dist:Float = -1;
-				var distItem:Int = -1;
-				for (i in 0...optionShit.length)
+				var selectedItem:FlxSprite;
+				switch(curColumn)
 				{
-					var memb:FlxSprite = menuItems.members[i];
-					if(FlxG.mouse.overlaps(memb))
+					case CENTER:
+						selectedItem = menuItems.members[curSelected];
+					case LEFT:
+						selectedItem = leftItem;
+					case RIGHT:
+						selectedItem = rightItem;
+				}
+
+				if(leftItem != null && FlxG.mouse.overlaps(leftItem))
+				{
+					allowMouse = true;
+					if(selectedItem != leftItem)
 					{
-						var distance:Float = Math.sqrt(Math.pow(memb.getGraphicMidpoint().x - FlxG.mouse.screenX, 2) + Math.pow(memb.getGraphicMidpoint().y - FlxG.mouse.screenY, 2));
-						if (dist < 0 || distance < dist)
+						curColumn = LEFT;
+						changeItem();
+					}
+				}
+				else if(rightItem != null && FlxG.mouse.overlaps(rightItem))
+				{
+					allowMouse = true;
+					if(selectedItem != rightItem)
+					{
+						curColumn = RIGHT;
+						changeItem();
+					}
+				}
+				else
+				{
+					var dist:Float = -1;
+					var distItem:Int = -1;
+					for (i in 0...optionShit.length)
+					{
+						var memb:FlxSprite = menuItems.members[i];
+						if(FlxG.mouse.overlaps(memb))
 						{
-							dist = distance;
-							distItem = i;
+							var distance:Float = Math.sqrt(Math.pow(memb.getGraphicMidpoint().x - FlxG.mouse.screenX, 2) + Math.pow(memb.getGraphicMidpoint().y - FlxG.mouse.screenY, 2));
+							if (dist < 0 || distance < dist)
+							{
+								dist = distance;
+								distItem = i;
+								allowMouse = true;
+							}
 						}
 					}
-				}
 
-				if(distItem != -1 && (curColumn != CENTER || curSelected != distItem))
-				{
-					curColumn = CENTER;
-					curSelected = distItem;
-					changeItem();
-					mouseOverItemChanged = true;
-				} else if (distItem == -1 && curColumn != CENTER) {
-					curColumn = CENTER;
-					changeItem();
-					mouseOverItemChanged = true;
-				}
-				if (leftItem != null && FlxG.mouse.overlaps(leftItem)) {
-					if (curColumn != LEFT || curSelected != optionShit.length) {
-						curColumn = LEFT;
-						curSelected = optionShit.length;
+					if(distItem != -1 && selectedItem != menuItems.members[distItem])
+					{
+						curColumn = CENTER;
+						curSelected = distItem;
 						changeItem();
-						mouseOverItemChanged = true;
 					}
-				} else if (leftItem != null && curColumn == LEFT && distItem == -1) {
-					curColumn = CENTER;
-					changeItem();
-					mouseOverItemChanged = true;
 				}
 			}
 			else
@@ -250,42 +231,41 @@ class MainMenuState extends MusicBeatState
 			switch(curColumn)
 			{
 				case CENTER:
-					if(controls.UI_LEFT_P && leftItem != null) {
+					if(controls.UI_LEFT_P && leftOption != null)
+					{
 						curColumn = LEFT;
-						curSelected = optionShit.length;
+						changeItem();
+					}
+					else if(controls.UI_RIGHT_P && rightOption != null)
+					{
+						curColumn = RIGHT;
 						changeItem();
 					}
 
 				case LEFT:
-					if(controls.UI_RIGHT_P) {
+					if(controls.UI_RIGHT_P)
+					{
 						curColumn = CENTER;
-						curSelected = 0;
 						changeItem();
 					}
-				case RIGHT:
-					// Esta columna no se usa en este diseño
-			}
 
-			var fadeOutDuration:Float = 0.4; // Duración del desvanecimiento para SFX y Webi
+				case RIGHT:
+					if(controls.UI_LEFT_P)
+					{
+						curColumn = CENTER;
+						changeItem();
+					}
+			}
 
 			if (controls.BACK)
 			{
 				selectedSomethin = true;
 				FlxG.mouse.visible = false;
 				FlxG.sound.play(Paths.sound('cancelMenu'));
-				// --- Desvanecer el SFX de fondo y Webi al salir ---
-				FlxG.sound.fadeOut(spookyMusic, fadeOutDuration, 0);
-				FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
-					ease: FlxEase.quadOut,
-					onComplete: function(t:FlxTween) {
-						MusicBeatState.switchState(new TitleState());
-					}
-				});
+				MusicBeatState.switchState(new TitleState());
 			}
 
-			var canAccept:Bool = controls.ACCEPT || (FlxG.mouse.justPressed && allowMouse && FlxG.mouse.overlaps(getSelectedMenuItem()));
-
-			if (canAccept)
+			if (controls.ACCEPT || (FlxG.mouse.overlaps(menuItems, FlxG.camera) && FlxG.mouse.justPressed && allowMouse))
 			{
 				FlxG.sound.play(Paths.sound('confirmMenu'));
 				selectedSomethin = true;
@@ -294,220 +274,107 @@ class MainMenuState extends MusicBeatState
 				if (ClientPrefs.data.flashing)
 					FlxFlicker.flicker(magenta, 1.1, 0.15, false);
 
-				var item:FlxSprite = getSelectedMenuItem();
+				var item:FlxSprite;
 				var option:String;
 				switch(curColumn)
 				{
 					case CENTER:
 						option = optionShit[curSelected];
+						item = menuItems.members[curSelected];
+
 					case LEFT:
 						option = leftOption;
+						item = leftItem;
+
 					case RIGHT:
 						option = rightOption;
+						item = rightItem;
 				}
 
 				FlxFlicker.flicker(item, 1, 0.06, false, false, function(flick:FlxFlicker)
 				{
-					// --- Desvanecer el SFX de fondo y Webi al cambiar de estado ---
-					FlxG.sound.fadeOut(spookyMusic, fadeOutDuration, 0);
-					FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
-						ease: FlxEase.quadOut,
-						onComplete: function(t:FlxTween) {
-							// Este switch de estados se ejecuta después de que Webi se ha desvanecido
-							switch (option)
+					switch (option)
+					{
+						case 'story_mode':
+							MusicBeatState.switchState(new StoryMenuState());
+						case 'freeplay':
+							MusicBeatState.switchState(new FreeplayState());
+
+						#if MODS_ALLOWED
+						case 'mods':
+							MusicBeatState.switchState(new ModsMenuState());
+						#end
+
+						#if ACHIEVEMENTS_ALLOWED
+						case 'achievements':
+							MusicBeatState.switchState(new AchievementsMenuState());
+						#end
+
+						case 'credits':
+							MusicBeatState.switchState(new CreditsState());
+						case 'options':
+							MusicBeatState.switchState(new OptionsState());
+							OptionsState.onPlayState = false;
+							if (PlayState.SONG != null)
 							{
-								case 'story_mode':
-									MusicBeatState.switchState(new StoryMenuState());
-								case 'freeplay':
-									MusicBeatState.switchState(new FreeplayState());
-
-								#if MODS_ALLOWED
-								case 'mods':
-									MusicBeatState.switchState(new ModsMenuState());
-								#end
-
-								#if ACHIEVEMENTS_ALLOWED
-								case 'achievements':
-									MusicBeatState.switchState(new AchievementsMenuState());
-								#end
-
-								case 'credits':
-									MusicBeatState.switchState(new CreditsState());
-								case 'options':
-									MusicBeatState.switchState(new OptionsState());
-									OptionsState.onPlayState = false;
-									if (PlayState.SONG != null)
-									{
-										PlayState.SONG.arrowSkin = null;
-										PlayState.SONG.splashSkin = null;
-										PlayState.stageUI = 'normal';
-									}
-								case 'donate':
-									CoolUtil.browserLoad('https://ninja-muffin24.itch.io/funkin');
-									selectedSomethin = false;
-									item.visible = true;
-									// Si no hay cambio de estado, asegúrate de que el SFX y Webi vuelvan
-									spookyMusic.volume = 0.6;
-									webiSprite.alpha = 1; // Hacer Webi visible de nuevo
-								default:
-									trace('Menu Item ${option} doesn\'t do anything');
-									selectedSomethin = false;
-									item.visible = true;
-									// Si no hay cambio de estado, asegúrate de que el SFX y Webi vuelvan
-									spookyMusic.volume = 0.6;
-									webiSprite.alpha = 1; // Hacer Webi visible de nuevo
+								PlayState.SONG.arrowSkin = null;
+								PlayState.SONG.splashSkin = null;
+								PlayState.stageUI = 'normal';
 							}
-						}
-					});
+						case 'donate':
+							CoolUtil.browserLoad('https://ninja-muffin24.itch.io/funkin');
+							selectedSomethin = false;
+							item.visible = true;
+						default:
+							trace('Menu Item ${option} doesn\'t do anything');
+							selectedSomethin = false;
+							item.visible = true;
+					}
 				});
-
+				
 				for (memb in menuItems)
 				{
 					if(memb == item)
 						continue;
+
 					FlxTween.tween(memb, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
 				}
-				if (leftItem != null && leftItem != item) FlxTween.tween(leftItem, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
-				if (rightItem != null && rightItem != item) FlxTween.tween(rightItem, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
-
-				// La línea anterior de desvanecer Webi directamente se ha movido al onComplete del flicker.
-				// FlxTween.tween(webiSprite, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
 			}
-			else if (controls.justPressed('debug_1') || (touchPad != null && touchPad.buttonE.justPressed))
+			else if (controls.justPressed('debug_1') || touchPad.buttonE.justPressed)
 			{
 				selectedSomethin = true;
 				FlxG.mouse.visible = false;
-				// --- Desvanecer el SFX de fondo y Webi al cambiar de estado ---
-				FlxG.sound.fadeOut(spookyMusic, fadeOutDuration, 0);
-				FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
-					ease: FlxEase.quadOut,
-					onComplete: function(t:FlxTween) {
-						MusicBeatState.switchState(new MasterEditorMenu());
-					}
-				});
+				MusicBeatState.switchState(new MasterEditorMenu());
 			}
 		}
+
+		super.update(elapsed);
 	}
 
 	function changeItem(change:Int = 0)
 	{
-		if (change != 0 || lastSelectedColumn != curColumn || (curColumn == CENTER && lastSelectedIndex != curSelected) || (curColumn == LEFT && lastSelectedIndex != curSelected)) {
-			FlxG.sound.play(Paths.sound('scrollMenu'));
-		}
+		if(change != 0) curColumn = CENTER;
+		curSelected = FlxMath.wrap(curSelected + change, 0, optionShit.length - 1);
+		FlxG.sound.play(Paths.sound('scrollMenu'));
 
-		if(change != 0) {
-			if (curColumn == LEFT) {
-				curColumn = CENTER;
-				curSelected = FlxMath.wrap(curSelected + change, 0, optionShit.length - 1);
-			} else {
-				curSelected = FlxMath.wrap(curSelected + change, 0, optionShit.length - 1);
-			}
-		}
-
-		for (i => item in menuItems)
+		for (item in menuItems)
 		{
-			if (i == curSelected && curColumn == CENTER) {
-				item.animation.play('selected');
-				FlxTween.tween(item.scale, {x: 1.05, y: 1.05}, 0.2, {ease: FlxEase.quadOut});
-			} else {
-				item.animation.play('idle');
-				FlxTween.tween(item.scale, {x: 0.95, y: 0.95}, 0.2, {ease: FlxEase.quadOut});
-			}
+			item.animation.play('idle');
 			item.centerOffsets();
 		}
 
-		if (leftItem != null) {
-			if (curColumn == LEFT) {
-				leftItem.animation.play('selected');
-				FlxTween.tween(leftItem.scale, {x: 1.05, y: 1.05}, 0.2, {ease: FlxEase.quadOut});
-			} else {
-				leftItem.animation.play('idle');
-				FlxTween.tween(leftItem.scale, {x: 0.95, y: 0.95}, 0.2, {ease: FlxEase.quadOut});
-			}
-			leftItem.centerOffsets();
-		}
-
-		if (rightItem != null) {
-			rightItem.animation.play('idle');
-			FlxTween.tween(rightItem.scale, {x: 0.95, y: 0.95}, 0.2, {ease: FlxEase.quadOut});
-			rightItem.centerOffsets();
-		}
-
-		lastSelectedColumn = curColumn;
-		lastSelectedIndex = curSelected;
-	}
-
-	function getSelectedMenuItem():FlxSprite
-	{
+		var selectedItem:FlxSprite;
 		switch(curColumn)
 		{
 			case CENTER:
-				return menuItems.members[curSelected];
+				selectedItem = menuItems.members[curSelected];
 			case LEFT:
-				return leftItem;
+				selectedItem = leftItem;
 			case RIGHT:
-				return rightItem;
+				selectedItem = rightItem;
 		}
-		return null;
+		selectedItem.animation.play('selected');
+		selectedItem.centerOffsets();
+		camFollow.y = selectedItem.getGraphicMidpoint().y;
 	}
-
-	function startWebiDanceTween() {
-		if (webiDanceTween != null) {
-			webiDanceTween.cancel();
 		}
-
-		var originalY = webiSprite.y;
-		var originalX = webiSprite.x;
-
-		webiDanceTween = FlxTween.tween(webiSprite, {y: originalY - webiDanceOffset}, 0.15, {
-			ease: FlxEase.sineOut,
-			onComplete: function(t:FlxTween) {
-				FlxTween.tween(webiSprite, {y: originalY + webiDanceOffset * 0.5}, 0.1, {
-					ease: FlxEase.sineIn,
-					onComplete: function(t:FlxTween) {
-						FlxTween.tween(webiSprite, {y: originalY}, 0.15, {
-							ease: FlxEase.sineOut,
-							onComplete: function(t:FlxTween) {
-								FlxTween.tween(webiSprite, {x: originalX - 5, angle: -5}, 0.1, {
-									ease: FlxEase.quadInOut,
-									onComplete: function(t:FlxTween) {
-										FlxTween.tween(webiSprite, {x: originalX + 5, angle: 5}, 0.1, {
-											ease: FlxEase.quadInOut,
-											onComplete: function(t:FlxTween) {
-												FlxTween.tween(webiSprite, {x: originalX, angle: 0}, 0.1, {
-													ease: FlxEase.quadInOut,
-													onComplete: function(t:FlxTween) {
-														FlxTween.wait(0.3, function(t:FlxTween) {
-															// Solo si Webi no se está desvaneciendo
-															if (webiSprite.alpha > 0) {
-																startWebiDanceTween();
-															}
-														});
-													}
-												});
-											}
-										});
-									}
-								});
-							}
-						});
-					}
-				});
-			}
-		});
-	}
-
-	// Función para desvanecer el SFX de fondo y Webi al destruir el estado
-	override function destroy() {
-		super.destroy();
-		var fadeOutDuration:Float = 0.4; // Usa la misma duración para consistencia
-		if (spookyMusic != null && spookyMusic.active) {
-			spookyMusic.fadeOut(fadeOutDuration, 0);
-		}
-		if (webiSprite != null && webiSprite.alpha > 0) {
-			FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
-				ease: FlxEase.quadOut
-			});
-		}
-	}
-}
