@@ -1,385 +1,513 @@
 package states;
 
 import flixel.FlxG;
-import flixel.FlxSprite;
 import flixel.FlxObject;
-import flixel.tweens.FlxTween;
+import flixel.FlxSprite;
+import flixel.effects.FlxFlicker;
+import flixel.math.FlxMath;
 import flixel.tweens.FlxEase;
-import flixel.text.FlxText;
+import flixel.tweens.FlxTween;
 import flixel.util.FlxColor;
-import flixel.util.FlxMath;
-import flixel.group.FlxGroup;
-import options.OptionsState;
+import flixel.text.FlxText;
+import flixel.group.FlxTypedGroup;
+import flixel.sound.FlxSound;
 import lime.app.Application;
+import states.editors.MasterEditorMenu;
+import options.OptionsState;
+import sys.FileSystem;
+import sys.io.File;
+
+#if desktop
+import DiscordClient;
+#end
 
 enum MainMenuColumn {
-    CENTER;
-}
-
-typedef MenuOption = {
-    var id:String;
-    var label:String;
-    var tooltip:String;
+	LEFT;
+	CENTER;
+	RIGHT;
 }
 
 class MainMenuState extends MusicBeatState
 {
-    public static var washosEngineVersion:String = '0.0.1';
-    public static var curSelected:Int = 0;
-    public static var curColumn:MainMenuColumn = CENTER;
+	public static var psychEngineVersion:String = '0.0.1';
+	public static var curSelected:Int = 0;
+	public static var curColumn:MainMenuColumn = CENTER;
+	var allowMouse:Bool = true;
 
-    var menuItems:Array<FlxSprite> = [];
-    var optionLabels:Array<FlxText> = [];
-    var menuOptions:Array<MenuOption>;
-    var magenta:FlxSprite;
-    var tooltipText:FlxText;
-    var tooltipBG:FlxSprite;
-    var webi:WebiSpooky;
-    static var showOutdatedWarning:Bool = true;
-    var selectedSomethin:Bool = false;
+	var menuItems:FlxTypedGroup<FlxSprite>;
+	var leftItem:FlxSprite;
+	var rightItem:FlxSprite;
 
-    override function create()
-    {
-        super.create();
-        setupOptions();
-        setupBackground();
-        setupMenu();
-        setupFooter();
-        setupTooltip();
-        setupWebi();
+	var optionShit:Array<String> = [
+		'story_mode',
+		'freeplay',
+		#if MODS_ALLOWED 'mods', #end
+		'credits'
+	];
 
-        FlxG.camera.follow(null); // Cámara fija
+	var leftOption:String = #if ACHIEVEMENTS_ALLOWED 'achievements' #else null #end;
+	var rightOption:String = 'options';
 
-        addTouchPad('NONE', 'E');
-        changeItem();
-    }
+	var magenta:FlxSprite;
 
-    function setupOptions()
-    {
-        menuOptions = [
-            { id: "story_mode", label: "Modo Historia", tooltip: "¡Juega la campaña principal!" },
-            { id: "freeplay", label: "Freeplay", tooltip: "Juega cualquier canción libremente." },
-            #if MODS_ALLOWED
-            { id: "mods", label: "Mods", tooltip: "Explora y juega mods de la comunidad." },
-            #end
-            { id: "credits", label: "Créditos", tooltip: "Conoce al equipo detrás del juego." },
-            #if ACHIEVEMENTS_ALLOWED
-            { id: "achievements", label: "Logros", tooltip: "Mira tus logros desbloqueados." },
-            #end
-            { id: "options", label: "Opciones", tooltip: "Configura el juego a tu gusto." }
-        ];
-    }
+	static var showOutdatedWarning:Bool = true;
 
-    function setupBackground()
-    {
-        var yScroll:Float = 0.22;
-        var bg:FlxSprite = new FlxSprite(-80).loadGraphic(Paths.image('menuBG'));
-        bg.antialiasing = ClientPrefs.data.antialiasing;
-        bg.scrollFactor.set(0, yScroll);
-        bg.setGraphicSize(Std.int(bg.width * 1.175));
-        bg.updateHitbox();
-        bg.screenCenter();
-        add(bg);
+	var lastSelectedColumn:MainMenuColumn;
+	var lastSelectedIndex:Int = -1;
 
-        magenta = new FlxSprite(-80).loadGraphic(Paths.image('menuDesat'));
-        magenta.antialiasing = ClientPrefs.data.antialiasing;
-        magenta.scrollFactor.set(0, yScroll);
-        magenta.setGraphicSize(Std.int(magenta.width * 1.175));
-        magenta.updateHitbox();
-        magenta.screenCenter();
-        magenta.visible = false;
-        magenta.color = 0xFFfd719b;
-        add(magenta);
-    }
+	var webiSprite:FlxSprite;
+	var webiDanceTween:FlxTween;
+	var webiDanceOffset:Float = 15;
 
-    function setupMenu()
-    {
-        var spacing = 90;
-        var startY = FlxG.height / 2 - ((menuOptions.length) * spacing) / 2 + 20;
-        var menuX = 80; // Izquierda con margen
+	var spookyMusic:FlxSound;
 
-        for (i in 0...menuOptions.length)
-        {
-            var option = menuOptions[i];
-            var item = createMenuSprite(option, menuX, startY + spacing * i);
-            menuItems.push(item);
-            add(item);
+	override function create()
+	{
+		super.create();
 
-            var labelTxt = new FlxText(item.x + item.width + 24, item.y + (item.height / 2 - 19), 0, option.label, 36);
-            labelTxt.setFormat(Paths.font("vcr.ttf"), 36, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-            labelTxt.ID = i;
-            optionLabels.push(labelTxt);
-            add(labelTxt);
-        }
-    }
+		#if MODS_ALLOWED
+		Mods.pushGlobalMods();
+		#end
+		Mods.loadTopMod();
 
-    function createMenuSprite(option:MenuOption, x:Float, y:Float):FlxSprite
-    {
-        var spr:FlxSprite = new FlxSprite(x, y);
-        spr.frames = Paths.getSparrowAtlas('mainmenu/menu_' + option.id);
-        spr.animation.addByPrefix('idle', option.id + ' idle', 24, true);
-        spr.animation.addByPrefix('selected', option.id + ' selected', 24, true);
-        spr.animation.play('idle');
-        spr.updateHitbox();
-        spr.antialiasing = ClientPrefs.data.antialiasing;
-        spr.scrollFactor.set();
-        spr.centerOffsets();
-        spr.ID = menuItems.length; // For mapping
-        return spr;
-    }
+		#if DISCORD_ALLOWED
+		DiscordClient.changePresence("En los Menús", null);
+		#end
 
-    function setupFooter()
-    {
-        var washVer:FlxText = new FlxText(12, FlxG.height - 44, 0, "Washos Engine v" + washosEngineVersion, 12);
-        washVer.scrollFactor.set();
-        washVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-        add(washVer);
+		persistentUpdate = persistentDraw = true;
 
-        var fnfVer:FlxText = new FlxText(12, FlxG.height - 24, 0, "Friday Night Funkin' v" + Application.current.meta.get('version'), 12);
-        fnfVer.scrollFactor.set();
-        fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-        add(fnfVer);
-    }
+		var yScroll:Float = 0.25;
+		var bg:FlxSprite = new FlxSprite(-80).loadGraphic(Paths.image('menuBG'));
+		bg.antialiasing = ClientPrefs.data.antialiasing;
+		bg.scrollFactor.set(0, yScroll);
+		bg.setGraphicSize(Std.int(bg.width * 1.175));
+		bg.updateHitbox();
+		bg.screenCenter();
+		add(bg);
 
-    function setupTooltip()
-    {
-        tooltipBG = new FlxSprite(0, 0).makeGraphic(410, 48, 0xAA111122);
-        tooltipBG.scrollFactor.set();
-        tooltipBG.alpha = 0;
-        add(tooltipBG);
+		magenta = new FlxSprite(-80).loadGraphic(Paths.image('menuDesat'));
+		magenta.antialiasing = ClientPrefs.data.antialiasing;
+		magenta.scrollFactor.set(0, yScroll);
+		magenta.setGraphicSize(Std.int(magenta.width * 1.175));
+		magenta.updateHitbox();
+		magenta.screenCenter();
+		magenta.visible = false;
+		magenta.color = 0xFFfd719b;
+		add(magenta);
 
-        tooltipText = new FlxText(0, 0, 400, "", 18);
-        tooltipText.setFormat(Paths.font("vcr.ttf"), 18, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-        tooltipText.scrollFactor.set();
-        tooltipText.alpha = 0;
-        add(tooltipText);
-    }
+		menuItems = new FlxTypedGroup<FlxSprite>();
+		add(menuItems);
 
-    function setupWebi()
-    {
-        // WebiSpooky recibirá la ruta de la imagen real
-        webi = new WebiSpooky(FlxG.width - 320, FlxG.height / 2 - 160, Paths.image('Webi'));
-        add(webi);
-    }
+		var startX:Float = 100;
+		var startY:Float = 200;
+		for (num => option in optionShit)
+		{
+			var item:FlxSprite = createMenuItem(option, startX, startY + (num * 140));
+		}
 
-    override function update(elapsed:Float)
-    {
-        super.update(elapsed);
+		if (leftOption != null) {
+			leftItem = createMenuItem(leftOption, startX, startY + (optionShit.length * 140));
+		}
 
-        if (webi != null)
-            webi.danceTime += elapsed;
+		// --- Configuración de la imagen "Webi" (PNG) ---
+		webiSprite = new FlxSprite(FlxG.width * 0.65, FlxG.height * 0.35);
+		webiSprite.loadGraphic(Paths.image('Webi'));
+		webiSprite.antialiasing = ClientPrefs.data.antialiasing;
+		webiSprite.setGraphicSize(Std.int(webiSprite.width * 0.7));
+		webiSprite.updateHitbox();
+		add(webiSprite);
+		startWebiDanceTween();
 
-        if (!selectedSomethin)
-        {
-            handleNavigation();
-            handleSelection();
-            handleDebug();
-        }
-        updateTooltip();
-    }
+		var psychVer:FlxText = new FlxText(12, FlxG.height - 44, 0, "Washos Engine v" + psychEngineVersion, 12);
+		psychVer.scrollFactor.set();
+		psychVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		add(psychVer);
+		var fnfVer:FlxText = new FlxText(12, FlxG.height - 24, 0, "Friday Night Funkin' v" + Application.current.meta.get('version'), 12);
+		fnfVer.scrollFactor.set();
+		fnfVer.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		add(fnfVer);
 
-    function handleNavigation()
-    {
-        if (controls.UI_UP_P)
-            changeItem(-1);
-        if (controls.UI_DOWN_P)
-            changeItem(1);
+		changeItem();
+		lastSelectedColumn = curColumn;
+		lastSelectedIndex = curSelected;
 
-        if (controls.BACK)
-        {
-            selectedSomethin = true;
-            FlxG.mouse.visible = false;
-            FlxG.sound.play(Paths.sound('cancelMenu'));
-            MusicBeatState.switchState(new TitleState());
-        }
-    }
+		#if ACHIEVEMENTS_ALLOWED
+		var leDate = Date.now();
+		if (leDate.getDay() == 5 && leDate.getHours() >= 18)
+			Achievements.unlock('friday_night_play');
+		#if MODS_ALLOWED
+		Achievements.reloadList();
+		#end
+		#end
 
-    function handleSelection()
-    {
-        var selectedItem = getSelectedItem();
-        if (controls.ACCEPT)
-        {
-            FlxG.sound.play(Paths.sound('confirmMenu'));
-            selectedSomethin = true;
-            FlxG.mouse.visible = false;
-            if (ClientPrefs.data.flashing)
-                FlxFlicker.flicker(magenta, 1.1, 0.15, false);
+		#if CHECK_FOR_UPDATES
+		if (showOutdatedWarning && ClientPrefs.data.checkForUpdates && substates.OutdatedSubState.updateVersion != psychEngineVersion) {
+			persistentUpdate = false;
+			showOutdatedWarning = false;
+			openSubState(new substates.OutdatedSubState());
+		}
+		#end
 
-            var option = getSelectedOption();
-            animateSelection(selectedItem);
+		FlxG.camera.scroll.set();
 
-            FlxFlicker.flicker(selectedItem, 1, 0.06, false, false, function(flick:FlxFlicker)
-            {
-                switch (option)
-                {
-                    case "story_mode": MusicBeatState.switchState(new StoryMenuState());
-                    case "freeplay": MusicBeatState.switchState(new FreeplayState());
-                    #if MODS_ALLOWED
-                    case "mods": MusicBeatState.switchState(new ModsMenuState());
-                    #end
-                    #if ACHIEVEMENTS_ALLOWED
-                    case "achievements": MusicBeatState.switchState(new AchievementsMenuState());
-                    #end
-                    case "credits": MusicBeatState.switchState(new CreditsState());
-                    case "options":
-                        MusicBeatState.switchState(new OptionsState());
-                        OptionsState.onPlayState = false;
-                        if (PlayState.SONG != null)
-                        {
-                            PlayState.SONG.arrowSkin = null;
-                            PlayState.SONG.splashSkin = null;
-                            PlayState.stageUI = 'normal';
-                        }
-                    default:
-                        trace('Menu Item ${option} doesn\'t do anything');
-                        selectedSomethin = false;
-                        selectedItem.visible = true;
-                }
-            });
-            for (item in menuItems)
-            {
-                if(item == selectedItem)
-                    continue;
-                FlxTween.tween(item, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
-            }
-        }
-    }
+		addTouchPad('NONE', 'E');
 
-    function handleDebug()
-    {
-        if (controls.justPressed('debug_1') || touchPad.buttonE.justPressed)
-        {
-            selectedSomethin = true;
-            FlxG.mouse.visible = false;
-            MusicBeatState.switchState(new MasterEditorMenu());
-        }
-    }
+		// --- Cargar y reproducir el SFX de fondo ---
+		spookyMusic = FlxG.sound.playMusic(Paths.sound('spooky_month_bg_sfx'), 1.0, true);
+		spookyMusic.volume = 0.6;
+	}
 
-    function getSelectedItem():FlxSprite
-    {
-        return menuItems[curSelected];
-    }
+	function createMenuItem(name:String, x:Float, y:Float):FlxSprite
+	{
+		var menuItem:FlxSprite = new FlxSprite(x, y);
+		menuItem.frames = Paths.getSparrowAtlas('mainmenu/menu_$name');
+		menuItem.animation.addByPrefix('idle', '$name idle', 24, true);
+		menuItem.animation.addByPrefix('selected', '$name selected', 24, true);
+		menuItem.animation.play('idle');
+		menuItem.updateHitbox();
 
-    function getSelectedOption():String
-    {
-        return menuOptions[curSelected].id;
-    }
+		menuItem.scale.set(0.95, 0.95);
+		menuItem.antialiasing = ClientPrefs.data.antialiasing;
+		menuItem.scrollFactor.set();
+		menuItems.add(menuItem);
+		return menuItem;
+	}
 
-    function changeItem(change:Int = 0)
-    {
-        curSelected = FlxMath.wrap(curSelected + change, 0, menuOptions.length - 1);
+	var selectedSomethin:Bool = false;
+	var timeNotMoving:Float = 0;
 
-        // Reset visuals
-        for (i in 0...menuItems.length)
-        {
-            var item = menuItems[i];
-            item.animation.play('idle');
-            item.alpha = 0.8;
-            item.color = FlxColor.WHITE;
-            FlxTween.tween(item.scale, {x: 1, y: 1}, 0.13, {ease: FlxEase.quadOut});
-            optionLabels[i].color = FlxColor.WHITE;
-            optionLabels[i].alpha = 0.85;
-        }
+	override function update(elapsed:Float)
+	{
+		super.update(elapsed);
 
-        // Select current
-        var selectedItem = getSelectedItem();
-        selectedItem.animation.play('selected');
-        selectedItem.alpha = 1.0;
-        selectedItem.color = 0xFFFBD8FF;
-        FlxTween.tween(selectedItem.scale, {x: 1.17, y: 1.17}, 0.19, {ease: FlxEase.backOut});
-        animateSelection(selectedItem);
+		if (FlxG.sound.music.volume < 0.8 && FlxG.sound.music != spookyMusic)
+			FlxG.sound.music.volume = Math.min(FlxG.sound.music.volume + 0.5 * elapsed, 0.8);
 
-        optionLabels[curSelected].color = FlxColor.YELLOW;
-        optionLabels[curSelected].alpha = 1.0;
-    }
+		if (!selectedSomethin)
+		{
+			if (controls.UI_UP_P) {
+				changeItem(-1);
+			}
 
-    function animateSelection(item:FlxSprite)
-    {
-        if (item == null) return;
-        FlxTween.tween(item.scale, {x: 1.23, y: 1.23}, 0.14, {
-            ease: FlxEase.elasticOut,
-            onComplete: function(_) {
-                FlxTween.tween(item.scale, {x: 1.17, y: 1.17}, 0.11, {ease: FlxEase.quadOut});
-            }
-        });
-    }
+			if (controls.UI_DOWN_P) {
+				changeItem(1);
+			}
 
-    function updateTooltip()
-    {
-        var option:MenuOption = menuOptions[curSelected];
-        var item = getSelectedItem();
+			var currentMouseAllow:Bool = allowMouse;
+			if (currentMouseAllow && (FlxG.mouse.deltaScreenX != 0 || FlxG.mouse.deltaScreenY != 0 || FlxG.mouse.justPressed))
+			{
+				FlxG.mouse.visible = true;
+				timeNotMoving = 0;
 
-        tooltipText.text = option.label + " - " + option.tooltip;
-        tooltipText.x = item.x + item.width + 40;
-        tooltipText.y = item.y + (item.height/2) - 24;
-        tooltipBG.x = tooltipText.x - 8;
-        tooltipBG.y = tooltipText.y - 4;
+				var mouseOverItemChanged:Bool = false;
 
-        FlxTween.tween(tooltipText, {alpha: 1}, 0.14);
-        FlxTween.tween(tooltipBG, {alpha: 0.9}, 0.14);
-    }
-}
+				var dist:Float = -1;
+				var distItem:Int = -1;
+				for (i in 0...optionShit.length)
+				{
+					var memb:FlxSprite = menuItems.members[i];
+					if(FlxG.mouse.overlaps(memb))
+					{
+						var distance:Float = Math.sqrt(Math.pow(memb.getGraphicMidpoint().x - FlxG.mouse.screenX, 2) + Math.pow(memb.getGraphicMidpoint().y - FlxG.mouse.screenY, 2));
+						if (dist < 0 || distance < dist)
+						{
+							dist = distance;
+							distItem = i;
+						}
+					}
+				}
 
-// --- WebiSpooky: animación de baile desde código sobre PNG ---
-class WebiSpooky extends FlxGroup
-{
-    public var danceTime:Float = 0;
-    var posX:Float;
-    var posY:Float;
-    var base:FlxSprite;
-    var head:FlxSprite;
-    var armLeft:FlxSprite;
-    var armRight:FlxSprite;
+				if(distItem != -1 && (curColumn != CENTER || curSelected != distItem))
+				{
+					curColumn = CENTER;
+					curSelected = distItem;
+					changeItem();
+					mouseOverItemChanged = true;
+				} else if (distItem == -1 && curColumn != CENTER) {
+					curColumn = CENTER;
+					changeItem();
+					mouseOverItemChanged = true;
+				}
+				if (leftItem != null && FlxG.mouse.overlaps(leftItem)) {
+					if (curColumn != LEFT || curSelected != optionShit.length) {
+						curColumn = LEFT;
+						curSelected = optionShit.length;
+						changeItem();
+						mouseOverItemChanged = true;
+					}
+				} else if (leftItem != null && curColumn == LEFT && distItem == -1) {
+					curColumn = CENTER;
+					changeItem();
+					mouseOverItemChanged = true;
+				}
+			}
+			else
+			{
+				timeNotMoving += elapsed;
+				if(timeNotMoving > 2) FlxG.mouse.visible = false;
+			}
 
-    public function new(x:Float, y:Float, imgAsset:String)
-    {
-        super();
-        posX = x;
-        posY = y;
+			switch(curColumn)
+			{
+				case CENTER:
+					if(controls.UI_LEFT_P && leftItem != null) {
+						curColumn = LEFT;
+						curSelected = optionShit.length;
+						changeItem();
+					}
 
-        // Imagen base de Webi (251x337)
-        base = new FlxSprite(posX, posY).loadGraphic(imgAsset);
-        base.setGraphicSize(167, 224); // Escala proporcional para que quepa bien
-        base.antialiasing = true;
-        base.updateHitbox();
-        add(base);
+				case LEFT:
+					if(controls.UI_RIGHT_P) {
+						curColumn = CENTER;
+						curSelected = 0;
+						changeItem();
+					}
+				case RIGHT:
+					// Esta columna no se usa en este diseño
+			}
 
-        // Brazos cartoon (negros, simulando spooky month)
-        armLeft = new FlxSprite(posX + 40, posY + 120);
-        armLeft.makeGraphic(20, 70, FlxColor.BLACK);
-        armLeft.origin.set(10,10);
-        add(armLeft);
+			var fadeOutDuration:Float = 0.4; // Duración del desvanecimiento para SFX y Webi
 
-        armRight = new FlxSprite(posX + 110, posY + 120);
-        armRight.makeGraphic(20, 70, FlxColor.BLACK);
-        armRight.origin.set(10,10);
-        add(armRight);
+			if (controls.BACK)
+			{
+				selectedSomethin = true;
+				FlxG.mouse.visible = false;
+				FlxG.sound.play(Paths.sound('cancelMenu'));
+				// --- Desvanecer el SFX de fondo y Webi al salir ---
+				FlxG.sound.fadeOut(spookyMusic, fadeOutDuration, 0);
+				FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
+					ease: FlxEase.quadOut,
+					onComplete: function(t:FlxTween) {
+						MusicBeatState.switchState(new TitleState());
+					}
+				});
+			}
 
-        // Cabeza cartoon encima para animar
-        head = new FlxSprite(posX + 42, posY + 20);
-        head.makeGraphic(83, 83, FlxColor.WHITE);
-        head.antialiasing = true;
-        add(head);
-    }
+			var canAccept:Bool = controls.ACCEPT || (FlxG.mouse.justPressed && allowMouse && FlxG.mouse.overlaps(getSelectedMenuItem()));
 
-    override public function update(elapsed:Float)
-    {
-        super.update(elapsed);
+			if (canAccept)
+			{
+				FlxG.sound.play(Paths.sound('confirmMenu'));
+				selectedSomethin = true;
+				FlxG.mouse.visible = false;
 
-        // Baile Spooky Month: Alterna los brazos y la cabeza
-        var t = danceTime;
-        var dance = Math.floor((t*2)%2) == 0;
+				if (ClientPrefs.data.flashing)
+					FlxFlicker.flicker(magenta, 1.1, 0.15, false);
 
-        // Brazos: rotación hacia arriba alternando
-        var armAngle = dance ? -65 : 65;
-        armLeft.angle = armAngle + Math.sin(t*5)*7;
-        armRight.angle = -armAngle + Math.cos(t*5)*7;
+				var item:FlxSprite = getSelectedMenuItem();
+				var option:String;
+				switch(curColumn)
+				{
+					case CENTER:
+						option = optionShit[curSelected];
+					case LEFT:
+						option = leftOption;
+					case RIGHT:
+						option = rightOption;
+				}
 
-        armLeft.y = posY+120 - Math.abs(Math.sin(t*2)*12);
-        armRight.y = posY+120 - Math.abs(Math.cos(t*2)*12);
+				FlxFlicker.flicker(item, 1, 0.06, false, false, function(flick:FlxFlicker)
+				{
+					// --- Desvanecer el SFX de fondo y Webi al cambiar de estado ---
+					FlxG.sound.fadeOut(spookyMusic, fadeOutDuration, 0);
+					FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
+						ease: FlxEase.quadOut,
+						onComplete: function(t:FlxTween) {
+							// Este switch de estados se ejecuta después de que Webi se ha desvanecido
+							switch (option)
+							{
+								case 'story_mode':
+									MusicBeatState.switchState(new StoryMenuState());
+								case 'freeplay':
+									MusicBeatState.switchState(new FreeplayState());
 
-        // Cabeza bailando de un lado a otro
-        head.x = posX + 42 + Math.sin(t*2)*11;
-        head.angle = dance ? -13 : 13;
-    }
+								#if MODS_ALLOWED
+								case 'mods':
+									MusicBeatState.switchState(new ModsMenuState());
+								#end
+
+								#if ACHIEVEMENTS_ALLOWED
+								case 'achievements':
+									MusicBeatState.switchState(new AchievementsMenuState());
+								#end
+
+								case 'credits':
+									MusicBeatState.switchState(new CreditsState());
+								case 'options':
+									MusicBeatState.switchState(new OptionsState());
+									OptionsState.onPlayState = false;
+									if (PlayState.SONG != null)
+									{
+										PlayState.SONG.arrowSkin = null;
+										PlayState.SONG.splashSkin = null;
+										PlayState.stageUI = 'normal';
+									}
+								case 'donate':
+									CoolUtil.browserLoad('https://ninja-muffin24.itch.io/funkin');
+									selectedSomethin = false;
+									item.visible = true;
+									// Si no hay cambio de estado, asegúrate de que el SFX y Webi vuelvan
+									spookyMusic.volume = 0.6;
+									webiSprite.alpha = 1; // Hacer Webi visible de nuevo
+								default:
+									trace('Menu Item ${option} doesn\'t do anything');
+									selectedSomethin = false;
+									item.visible = true;
+									// Si no hay cambio de estado, asegúrate de que el SFX y Webi vuelvan
+									spookyMusic.volume = 0.6;
+									webiSprite.alpha = 1; // Hacer Webi visible de nuevo
+							}
+						}
+					});
+				});
+
+				for (memb in menuItems)
+				{
+					if(memb == item)
+						continue;
+					FlxTween.tween(memb, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
+				}
+				if (leftItem != null && leftItem != item) FlxTween.tween(leftItem, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
+				if (rightItem != null && rightItem != item) FlxTween.tween(rightItem, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
+
+				// La línea anterior de desvanecer Webi directamente se ha movido al onComplete del flicker.
+				// FlxTween.tween(webiSprite, {alpha: 0}, 0.4, {ease: FlxEase.quadOut});
+			}
+			else if (controls.justPressed('debug_1') || (touchPad != null && touchPad.buttonE.justPressed))
+			{
+				selectedSomethin = true;
+				FlxG.mouse.visible = false;
+				// --- Desvanecer el SFX de fondo y Webi al cambiar de estado ---
+				FlxG.sound.fadeOut(spookyMusic, fadeOutDuration, 0);
+				FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
+					ease: FlxEase.quadOut,
+					onComplete: function(t:FlxTween) {
+						MusicBeatState.switchState(new MasterEditorMenu());
+					}
+				});
+			}
+		}
+	}
+
+	function changeItem(change:Int = 0)
+	{
+		if (change != 0 || lastSelectedColumn != curColumn || (curColumn == CENTER && lastSelectedIndex != curSelected) || (curColumn == LEFT && lastSelectedIndex != curSelected)) {
+			FlxG.sound.play(Paths.sound('scrollMenu'));
+		}
+
+		if(change != 0) {
+			if (curColumn == LEFT) {
+				curColumn = CENTER;
+				curSelected = FlxMath.wrap(curSelected + change, 0, optionShit.length - 1);
+			} else {
+				curSelected = FlxMath.wrap(curSelected + change, 0, optionShit.length - 1);
+			}
+		}
+
+		for (i => item in menuItems)
+		{
+			if (i == curSelected && curColumn == CENTER) {
+				item.animation.play('selected');
+				FlxTween.tween(item.scale, {x: 1.05, y: 1.05}, 0.2, {ease: FlxEase.quadOut});
+			} else {
+				item.animation.play('idle');
+				FlxTween.tween(item.scale, {x: 0.95, y: 0.95}, 0.2, {ease: FlxEase.quadOut});
+			}
+			item.centerOffsets();
+		}
+
+		if (leftItem != null) {
+			if (curColumn == LEFT) {
+				leftItem.animation.play('selected');
+				FlxTween.tween(leftItem.scale, {x: 1.05, y: 1.05}, 0.2, {ease: FlxEase.quadOut});
+			} else {
+				leftItem.animation.play('idle');
+				FlxTween.tween(leftItem.scale, {x: 0.95, y: 0.95}, 0.2, {ease: FlxEase.quadOut});
+			}
+			leftItem.centerOffsets();
+		}
+
+		if (rightItem != null) {
+			rightItem.animation.play('idle');
+			FlxTween.tween(rightItem.scale, {x: 0.95, y: 0.95}, 0.2, {ease: FlxEase.quadOut});
+			rightItem.centerOffsets();
+		}
+
+		lastSelectedColumn = curColumn;
+		lastSelectedIndex = curSelected;
+	}
+
+	function getSelectedMenuItem():FlxSprite
+	{
+		switch(curColumn)
+		{
+			case CENTER:
+				return menuItems.members[curSelected];
+			case LEFT:
+				return leftItem;
+			case RIGHT:
+				return rightItem;
+		}
+		return null;
+	}
+
+	function startWebiDanceTween() {
+		if (webiDanceTween != null) {
+			webiDanceTween.cancel();
+		}
+
+		var originalY = webiSprite.y;
+		var originalX = webiSprite.x;
+
+		webiDanceTween = FlxTween.tween(webiSprite, {y: originalY - webiDanceOffset}, 0.15, {
+			ease: FlxEase.sineOut,
+			onComplete: function(t:FlxTween) {
+				FlxTween.tween(webiSprite, {y: originalY + webiDanceOffset * 0.5}, 0.1, {
+					ease: FlxEase.sineIn,
+					onComplete: function(t:FlxTween) {
+						FlxTween.tween(webiSprite, {y: originalY}, 0.15, {
+							ease: FlxEase.sineOut,
+							onComplete: function(t:FlxTween) {
+								FlxTween.tween(webiSprite, {x: originalX - 5, angle: -5}, 0.1, {
+									ease: FlxEase.quadInOut,
+									onComplete: function(t:FlxTween) {
+										FlxTween.tween(webiSprite, {x: originalX + 5, angle: 5}, 0.1, {
+											ease: FlxEase.quadInOut,
+											onComplete: function(t:FlxTween) {
+												FlxTween.tween(webiSprite, {x: originalX, angle: 0}, 0.1, {
+													ease: FlxEase.quadInOut,
+													onComplete: function(t:FlxTween) {
+														FlxTween.wait(0.3, function(t:FlxTween) {
+															// Solo si Webi no se está desvaneciendo
+															if (webiSprite.alpha > 0) {
+																startWebiDanceTween();
+															}
+														});
+													}
+												});
+											}
+										});
+									}
+								});
+							}
+						});
+					}
+				});
+			}
+		});
+	}
+
+	// Función para desvanecer el SFX de fondo y Webi al destruir el estado
+	override function destroy() {
+		super.destroy();
+		var fadeOutDuration:Float = 0.4; // Usa la misma duración para consistencia
+		if (spookyMusic != null && spookyMusic.active) {
+			spookyMusic.fadeOut(fadeOutDuration, 0);
+		}
+		if (webiSprite != null && webiSprite.alpha > 0) {
+			FlxTween.tween(webiSprite, {alpha: 0}, fadeOutDuration, {
+				ease: FlxEase.quadOut
+			});
+		}
+	}
 }
